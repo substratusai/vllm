@@ -52,7 +52,7 @@ WORKDIR /workspace
 # after this step
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu126 "torch==2.7.0.dev20250121+cu126" "torchvision==0.22.0.dev20250121";  \
+        uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124; \
     fi
 
 COPY requirements/common.txt requirements/common.txt
@@ -195,12 +195,11 @@ ENV UV_HTTP_TIMEOUT=500
 RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
 
 # arm64 (GH200) build follows the practice of "use existing pytorch" build,
-# we need to install torch and torchvision from the nightly builds first,
-# pytorch will not appear as a vLLM dependency in all of the following steps
-# after this step
+# we need to install torch and torchvision from the official release for ARM64
+# with CUDA support
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu124 "torch==2.6.0.dev20241210+cu124" "torchvision==0.22.0.dev20241215";  \
+        uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124; \
     fi
 
 # Install vllm wheel first, so that torch etc will be installed.

@@ -53,10 +53,15 @@ WORKDIR /workspace
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         uv pip install --index-url https://download.pytorch.org/whl/nightly/cu126 "torch==2.7.0.dev20250121+cu126" "torchvision==0.22.0.dev20250121"; \
+        # Install dependencies for building Triton
+        apt-get update && \
+        apt-get install -y zlib1g-dev && \
         # Install Triton from source following official docs
         cd /tmp && \
         git clone https://github.com/triton-lang/triton.git && \
-        cd triton/python && \
+        cd triton && \
+        git checkout release/3.1.x && \
+        cd python && \
         pip install ninja cmake wheel && \
         pip install -e . && \
         cd /vllm-workspace; \
@@ -211,7 +216,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         # Install Triton from source following official docs
         cd /tmp && \
         git clone https://github.com/triton-lang/triton.git && \
-        cd triton/python && \
+        cd triton && \
+        git checkout release/3.1.x && \
+        cd python && \
         pip install ninja cmake wheel && \
         pip install -e . && \
         cd /vllm-workspace; \

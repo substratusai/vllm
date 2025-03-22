@@ -52,7 +52,14 @@ WORKDIR /workspace
 # after this step
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu126 "torch==2.7.0.dev20250121+cu126" "torchvision==0.22.0.dev20250121";  \
+        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu126 "torch==2.7.0.dev20250121+cu126" "torchvision==0.22.0.dev20250121"; \
+        # Install Triton from source following official docs
+        cd /tmp && \
+        git clone https://github.com/triton-lang/triton.git && \
+        cd triton/python && \
+        pip install ninja cmake wheel && \
+        pip install -e . && \
+        cd /vllm-workspace; \
     fi
 
 COPY requirements/common.txt requirements/common.txt
@@ -201,6 +208,13 @@ RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         uv pip install --index-url https://download.pytorch.org/whl/nightly/cu126 "torch==2.7.0.dev20250121+cu126" "torchvision==0.22.0.dev20250121"; \
+        # Install Triton from source following official docs
+        cd /tmp && \
+        git clone https://github.com/triton-lang/triton.git && \
+        cd triton/python && \
+        pip install ninja cmake wheel && \
+        pip install -e . && \
+        cd /vllm-workspace; \
     fi
 
 # Install vllm wheel first, so that torch etc will be installed.

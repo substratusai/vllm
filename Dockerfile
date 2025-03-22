@@ -60,7 +60,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         cd /tmp && \
         git clone https://github.com/triton-lang/triton.git && \
         cd triton && \
-        git checkout release/3.1.x && \
+        git checkout release/3.2.x && \
         cd python && \
         pip install ninja cmake wheel && \
         pip install . ; \
@@ -219,7 +219,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         cd /tmp && \
         git clone https://github.com/triton-lang/triton.git && \
         cd triton && \
-        git checkout release/3.1.x && \
+        git checkout release/3.2.x && \
         cd python && \
         pip install ninja cmake wheel && \
         pip install . ; \

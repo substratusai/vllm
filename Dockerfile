@@ -153,6 +153,25 @@ RUN if [ "$RUN_WHEEL_CHECK" = "true" ]; then \
     else \
         echo "Skipping wheel size check."; \
     fi
+
+# Build flashinfer for arm64
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+    # Install dependencies for building FlashInfer
+    apt-get update && \
+    apt-get install -y zlib1g-dev && \
+    # Install FlashInfer from source
+    cd /tmp && \
+    git clone https://github.com/flashinfer-ai/flashinfer.git && \
+    cd flashinfer && \
+    git checkout v0.2.1.post2 && \
+    uv pip install ninja && \
+    export FLASHINFER_ENABLE_AOT=1 && \
+    uv pip install --no-build-isolation . ; \
+    # Create wheel
+    uv python -m build --no-isolation --sdist --dist-dir=dist; \
+    cp dist/*.whl /workspace/dist; \
+    fi
+
 #################### EXTENSION Build IMAGE ####################
 
 #################### DEV IMAGE ####################
@@ -304,7 +323,7 @@ ENV UV_HTTP_TIMEOUT=500
 # install additional dependencies for openai api server
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        uv pip install accelerate hf_transfer 'modelscope!=1.15.0' 'bitsandbytes>=0.42.0' 'timm==0.9.10' boto3 runai-model-streamer runai-model-streamer[s3]; \
+        uv pip install accelerate hf_transfer 'modelscope!=1.15.0' 'bitsandbytes>=0.42.0' 'timm==0.9.10' boto3 runai-model-streamer runai-model-streamer[s3] xformers; \
     else \
         uv pip install accelerate hf_transfer 'modelscope!=1.15.0' 'bitsandbytes>=0.45.0' 'timm==0.9.10' boto3 runai-model-streamer runai-model-streamer[s3]; \
     fi

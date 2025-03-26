@@ -52,18 +52,46 @@ WORKDIR /workspace
 # after this step
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu126 "torch==2.7.0.dev20250121+cu126" "torchvision==0.22.0.dev20250121"; \
-        # Install dependencies for building Triton
-        apt-get update && \
-        apt-get install -y zlib1g-dev && \
-        # Install Triton from source following official docs
-        cd /tmp && \
-        git clone https://github.com/triton-lang/triton.git && \
-        cd triton && \
-        git checkout release/3.2.x && \
-        cd python && \
-        pip install ninja cmake wheel && \
-        pip install . ; \
+        set -x && \
+        # Install system dependencies
+        apt-get update && apt-get install -y \
+            libopenmpi-dev \
+            libomp-dev \
+            ccache \
+            libopenblas-dev \
+            && \
+        # Set build environment variables
+        export CMAKE_C_COMPILER=/usr/bin/gcc-10 && \
+        export CMAKE_CXX_COMPILER=/usr/bin/g++-10 && \
+        export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 8.9 9.0+PTX" && \
+        export CUDA_HOME=/usr/local/cuda && \
+        export CUDA_NVCC_EXECUTABLE=/usr/local/cuda/bin/nvcc && \
+        export USE_CUDA=1 && \
+        export USE_CUDNN=1 && \
+        export BUILD_TEST=0 && \
+        export USE_MKLDNN=1 && \
+        export USE_OPENMP=1 && \
+        export USE_MKL=0 && \
+        export USE_BLAS=OpenBLAS && \
+        export USE_PRIORITIZED_TEXT_FOR_LD=1 && \
+        export UV_LINK_MODE=copy && \
+        # Clone and build PyTorch
+        git clone https://github.com/pytorch/pytorch /tmp/pytorch && \
+        cd /tmp/pytorch && \
+        git checkout v2.6.0 && \
+        git submodule sync && \
+        git submodule update --init --recursive && \
+        # Install build dependencies
+        uv pip install cmake ninja setuptools && \
+        uv pip install -r requirements.txt && \
+        # Build PyTorch - use python directly instead of uv run
+        python setup.py install && \
+        python setup.py bdist_wheel && \
+        cp dist/*.whl /workspace/dist && \
+        cd .. && \
+        rm -rf pytorch && \
+        # Install triton
+        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu128 --pre pytorch_triton==3.3.0+gitab727c40; \
     fi
 
 COPY requirements/common.txt requirements/common.txt
@@ -107,6 +135,37 @@ ENV MAX_JOBS=${max_jobs}
 # number of threads used by nvcc
 ARG nvcc_threads=8
 ENV NVCC_THREADS=$nvcc_threads
+
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=$CUDA_HOME/bin:$PATH
+ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+# Build flashinfer for arm64
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        # Install FlashInfer from source
+        set -x && \
+        cd /tmp && \
+        git clone --recursive https://github.com/flashinfer-ai/flashinfer.git && \
+        cd flashinfer && \
+        git checkout v0.2.1.post2 && \
+        uv pip install ninja build && \
+        # Set environment variables for AOT build
+        export FLASHINFER_ENABLE_AOT=1 && \
+        # Set CUDA architectures according to FlashInfer docs
+        export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 8.9 9.0a" && \
+        # export TORCH_CUDA_ARCH_LIST='7.5 8.0 8.6 8.9 9.0+PTX' && \
+        # Torch is needed for FlashInfer build
+        # uv pip install --index-url https://download.pytorch.org/whl/nightly/cu128 --pre pytorch_triton==3.3.0+gitab727c40 && \
+        # export CUDA_HOME=/usr/local/cuda-12.4 && \
+        # Build wheel directly with verbose output, passing CUDA_HOME explicitly
+        # uv pip install --no-build-isolation --verbose --editable . && \
+        # uv run --no-build-isolation python -m build --no-build-isolation --wheel --dist-dir=dist --verbose && \
+        python -c "import torch; print(torch.cuda._is_compiled())" && \
+        uv pip install --no-build-isolation --verbose --editable . && \
+        python -m build --no-isolation --wheel --outdir dist --verbose && \ 
+        cp dist/*.whl /workspace/dist; \
+    fi
+
 
 ARG USE_SCCACHE
 ARG SCCACHE_BUCKET_NAME=vllm-build-sccache
@@ -154,23 +213,6 @@ RUN if [ "$RUN_WHEEL_CHECK" = "true" ]; then \
         echo "Skipping wheel size check."; \
     fi
 
-# Build flashinfer for arm64
-RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-    # Install dependencies for building FlashInfer
-    apt-get update && \
-    apt-get install -y zlib1g-dev && \
-    # Install FlashInfer from source
-    cd /tmp && \
-    git clone https://github.com/flashinfer-ai/flashinfer.git && \
-    cd flashinfer && \
-    git checkout v0.2.1.post2 && \
-    uv pip install ninja && \
-    export FLASHINFER_ENABLE_AOT=1 && \
-    uv pip install --no-build-isolation . ; \
-    # Create wheel
-    uv python -m build --no-isolation --sdist --dist-dir=dist; \
-    cp dist/*.whl /workspace/dist; \
-    fi
 
 #################### EXTENSION Build IMAGE ####################
 
@@ -230,18 +272,8 @@ RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
 # after this step
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu126 "torch==2.7.0.dev20250121+cu126" "torchvision==0.22.0.dev20250121"; \
-        # Install dependencies for building Triton
-        apt-get update && \
-        apt-get install -y zlib1g-dev && \
-        # Install Triton from source following official docs
-        cd /tmp && \
-        git clone https://github.com/triton-lang/triton.git && \
-        cd triton && \
-        git checkout release/3.2.x && \
-        cd python && \
-        pip install ninja cmake wheel && \
-        pip install . ; \
+        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu128 "torch==2.8.0.dev20250318+cu128" "torchvision==0.22.0.dev20250319";  \
+        uv pip install --index-url https://download.pytorch.org/whl/nightly/cu128 --pre pytorch_triton==3.3.0+gitab727c40; \
     fi
 
 # Install vllm wheel first, so that torch etc will be installed.

@@ -136,35 +136,6 @@ ENV MAX_JOBS=${max_jobs}
 ARG nvcc_threads=8
 ENV NVCC_THREADS=$nvcc_threads
 
-ENV CUDA_HOME=/usr/local/cuda
-ENV PATH=$CUDA_HOME/bin:$PATH
-ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-# Build flashinfer for arm64
-RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        # Install FlashInfer from source
-        set -x && \
-        cd /tmp && \
-        git clone --recursive https://github.com/flashinfer-ai/flashinfer.git && \
-        cd flashinfer && \
-        git checkout v0.2.1.post2 && \
-        uv pip install ninja build && \
-        # Set environment variables for AOT build
-        export FLASHINFER_ENABLE_AOT=1 && \
-        # Set CUDA architectures according to FlashInfer docs
-        export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 8.9 9.0a" && \
-        # export TORCH_CUDA_ARCH_LIST='7.5 8.0 8.6 8.9 9.0+PTX' && \
-        # Torch is needed for FlashInfer build
-        # uv pip install --index-url https://download.pytorch.org/whl/nightly/cu128 --pre pytorch_triton==3.3.0+gitab727c40 && \
-        # export CUDA_HOME=/usr/local/cuda-12.4 && \
-        # Build wheel directly with verbose output, passing CUDA_HOME explicitly
-        # uv pip install --no-build-isolation --verbose --editable . && \
-        # uv run --no-build-isolation python -m build --no-build-isolation --wheel --dist-dir=dist --verbose && \
-        python -c "import torch; print(torch.cuda._is_compiled())" && \
-        uv pip install --no-build-isolation --verbose --editable . && \
-        python -m build --no-isolation --wheel --outdir dist --verbose && \ 
-        cp dist/*.whl /workspace/dist; \
-    fi
 
 
 ARG USE_SCCACHE
@@ -196,8 +167,11 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
     --mount=type=bind,source=.git,target=.git  \
     if [ "$USE_SCCACHE" != "1" ]; then \
         # Clean any existing CMake artifacts
+        set -x && \
         rm -rf .deps && \
         mkdir -p .deps && \
+        rm -rf dist && \
+        mkdir -p dist && \
         python3 setup.py bdist_wheel --dist-dir=dist --py-limited-api=cp38; \
     fi
 
@@ -211,6 +185,36 @@ RUN if [ "$RUN_WHEEL_CHECK" = "true" ]; then \
         python3 check-wheel-size.py dist; \
     else \
         echo "Skipping wheel size check."; \
+    fi
+
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=$CUDA_HOME/bin:$PATH
+ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+# Build flashinfer for arm64
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        # Install FlashInfer from source
+        set -x && \
+        cd /tmp && \
+        git clone --recursive https://github.com/flashinfer-ai/flashinfer.git && \
+        cd flashinfer && \
+        git checkout v0.2.1.post2 && \
+        uv pip install ninja build && \
+        # Set environment variables for AOT build
+        export FLASHINFER_ENABLE_AOT=1 && \
+        # Set CUDA architectures according to FlashInfer docs
+        export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 8.9 9.0a" && \
+        # export TORCH_CUDA_ARCH_LIST='7.5 8.0 8.6 8.9 9.0+PTX' && \
+        # Torch is needed for FlashInfer build
+        # uv pip install --index-url https://download.pytorch.org/whl/nightly/cu128 --pre pytorch_triton==3.3.0+gitab727c40 && \
+        # export CUDA_HOME=/usr/local/cuda-12.4 && \
+        # Build wheel directly with verbose output, passing CUDA_HOME explicitly
+        # uv pip install --no-build-isolation --verbose --editable . && \
+        # uv run --no-build-isolation python -m build --no-build-isolation --wheel --dist-dir=dist --verbose && \
+        python -c "import torch; print(torch.cuda._is_compiled())" && \
+        uv pip install --no-build-isolation --verbose --editable . && \
+        mkdir -p /workspace/flashinfer_dist && \
+        python -m build --no-isolation --wheel --outdir /workspace/flashinfer_dist --verbose;  \ 
     fi
 
 
@@ -294,9 +298,12 @@ RUN --mount=type=bind,from=build,src=/workspace/dist,target=/vllm-workspace/dist
 # $ # upload the wheel to a public location, e.g. https://wheels.vllm.ai/flashinfer/524304395bd1d8cd7d07db083859523fcaa246a4/flashinfer_python-0.2.1.post1+cu124torch2.5-cp38-abi3-linux_x86_64.whl
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-if [ "$TARGETPLATFORM" != "linux/arm64" ]; then \
-    uv pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.2.1.post2/flashinfer_python-0.2.1.post2+cu124torch2.6-cp38-abi3-linux_x86_64.whl ; \
-fi
+    --mount=type=bind,from=build,src=/workspace/flashinfer_dist,target=/vllm-workspace/flashinfer_dist \
+    if [ "$TARGETPLATFORM" != "linux/arm64" ]; then \
+        uv pip install flashinfer_dist/*.whl --verbose; \
+    else \
+        uv pip install flashinfer_dist/*.whl --verbose; \
+    fi
 COPY examples examples
 
 # Although we build Flashinfer with AOT mode, there's still
